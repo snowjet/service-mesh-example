@@ -1,0 +1,165 @@
+apiVersion: "v1"
+kind: "ImageStream"
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+---
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: frontend
+  annotations:
+    description: Defines how to build the application
+    template.alpha.openshift.io/wait-for-ready: "true"
+  labels:
+    app: frontend
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'frontend:latest'    
+  source:
+    git:
+      uri: https://github.com/snowjet/service-mesh-example.git
+    type: Git
+    contextDir: "projects/demo-flask"
+  strategy:
+    sourceStrategy:
+      from:
+        kind: ImageStreamTag
+        name: python:3.6
+        namespace: openshift
+    type: Source
+  successfulBuildsHistoryLimit: 5
+  triggers:
+  - type: ConfigChange
+  - imageChange:
+    type: ImageChange
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: cfg-frontend
+  labels:
+    app: frontend
+data:
+  env: |-
+    LOG_LEVEL="INFO"
+    PROJECT_NAME="Sharing"
+    MAIN_IMAGE_NAME="ansible-ocp.png"
+    MAP_IMAGE_NAME="moon.jpg"
+    REDHAT_IMAGE_NAME="redhat.jpg"
+    SECRET_IMAGE_LOCATION="decrypted.enc"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+  name: secret-frontend
+stringData:
+  SECRET_KEY: oR5gyPYcwzo1QnU0VX0gNREhYxMwzhZzqLwQOv5Ii4w=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+    service: frontend
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    name: frontend
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  to:
+    kind: Service
+    name: frontend
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  name: frontend
+  annotations:
+    template.alpha.openshift.io/wait-for-ready: "true"
+  labels:
+    app: frontend
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    name: frontend
+  strategy:
+    type: Rolling
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "true"
+      labels:
+        app: frontend
+        version: v1
+      name: frontend  
+    spec:
+      containers:
+      - name: frontend
+        image: frontend:latest
+        imagePullPolicy: Always    
+        ports:
+        - name: frontend-port
+          containerPort: 8080
+        env:        
+        - name: env_file
+          value:  /opt/app-root/env/.env
+        envFrom:
+          - configMapRef:
+              name: cfg-frontend
+          - secretRef:
+              name: secret-frontend
+        volumeMounts:
+          - name: cfg-frontend
+            readOnly: true
+            mountPath: '/opt/app-root/env'            
+        readinessProbe:
+          tcpSocket:
+            port: frontend-port
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: frontend-port
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: cfg-frontend
+        configMap:
+          name: cfg-frontend
+          items:
+            - key: env
+              path: .env
+  triggers:
+  - type: ConfigChange
+  - imageChangeParams:
+      automatic: true
+      containerNames:
+      - frontend
+      from:
+        kind: ImageStreamTag
+        name: frontend:latest
+    type: ImageChange

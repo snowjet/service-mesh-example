@@ -1,0 +1,105 @@
+apiVersion: "v1"
+kind: "ImageStream"
+metadata:
+  name: quote
+  labels:
+    app: quote
+---
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: quote
+  annotations:
+    description: Defines how to build the application
+    template.alpha.openshift.io/wait-for-ready: "true"
+  labels:
+    app: quote
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'quote:latest'    
+  source:
+    git:
+      uri: https://github.com/snowjet/service-mesh-example.git
+    type: Git
+    contextDir: "projects/demo-quote-gen"
+  strategy:
+    sourceStrategy:
+      from:
+        kind: ImageStreamTag
+        name: python:3.6
+        namespace: openshift
+    type: Source
+  successfulBuildsHistoryLimit: 5
+  triggers:
+  - type: ConfigChange
+  - imageChange:
+    type: ImageChange
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quote
+  labels:
+    app: quote
+    service: quote
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    name: quote
+---
+apiVersion: v1
+kind: DeploymentConfig
+metadata:
+  name: quote
+  annotations:
+    template.alpha.openshift.io/wait-for-ready: "true"
+  labels:
+    app: quote
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    name: quote
+  strategy:
+    type: Rolling
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "true"
+      labels:
+        app: quote
+        version: v1
+      name: quote  
+    spec:
+      containers:
+      - name: quote
+        image: quote:latest
+        imagePullPolicy: Always    
+        ports:
+        - name: quote-port
+          containerPort: 8080         
+        readinessProbe:
+          tcpSocket:
+            port: quote-port
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: quote-port
+          initialDelaySeconds: 15
+          periodSeconds: 20
+  triggers:
+  - type: ConfigChange
+  - imageChangeParams:
+      automatic: true
+      containerNames:
+      - quote
+      from:
+        kind: ImageStreamTag
+        name: quote:latest
+    type: ImageChange

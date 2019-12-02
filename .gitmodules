@@ -1,0 +1,6 @@
+[submodule "projects/demo-flask"]
+	path = projects/demo-flask
+	url = https://github.com/snowjet/demo-flask.git
+[submodule "projects/demo-quote-gen"]
+	path = projects/demo-quote-gen
+	url = https://github.com/snowjet/demo-quote-gen.git
